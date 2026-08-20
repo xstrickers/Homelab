@@ -61,3 +61,55 @@ These are mounted on the Ubuntu server as:
 The separation between compute and storage allows the server to run the
 applications while the NAS provides the bulk storage required by the media
 library.
+
+## Docker
+
+Docker is used to deploy and isolate the services running on the server.
+
+The media services are managed through Docker Compose and share a dedicated
+bridge network named `docker_jelly_network`.
+
+The current Docker network uses the following configuration:
+
+- Network: `docker_jelly_network`
+- Driver: `bridge`
+- Subnet: `172.18.0.0/16`
+- Gateway: `172.18.0.1`
+
+The following services are connected to this network:
+
+- Jellyfin
+- Seerr
+- Sonarr
+- Radarr
+- Prowlarr
+- Gluetun
+
+qBittorrent uses a different networking configuration. It shares Gluetun's
+network namespace through Docker's `network_mode: service:gluetun` mechanism.
+
+This ensures that qBittorrent uses the same network path as Gluetun and can
+therefore operate through the VPN tunnel.
+
+### Docker Compose Stacks
+
+The infrastructure is split into two Docker Compose projects.
+
+#### Media stack
+
+The main Compose project contains:
+
+- Gluetun
+- qBittorrent
+- Sonarr
+- Radarr
+- Prowlarr
+- Jellyfin
+- Seerr
+
+#### Caddy stack
+
+Caddy is deployed separately using its own Docker Compose project.
+
+This separation keeps the reverse proxy configuration independent from the
+media services.
