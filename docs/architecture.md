@@ -21,3 +21,43 @@ The infrastructure is composed of two main Docker Compose stacks:
    Prowlarr, qBittorrent and Gluetun.
 2. The Caddy stack, containing the reverse proxy and its custom
    DuckDNS-enabled Caddy build.
+   
+## Hardware & Infrastructure
+
+### Server
+
+The main server is a Fujitsu Esprimo Q556/2 running Ubuntu Server.
+
+Its current hardware configuration is:
+
+- Intel Core i5-7400
+- 8 GB RAM
+- 240 GB SSD
+- Intel integrated GPU
+
+The SSD is used for the operating system, Docker and local application
+configuration. Media data is stored on the NAS rather than on the server's
+local storage.
+
+### NAS
+
+The NAS is an OpenMediaVault-based storage server located on the local
+network.
+
+It provides approximately 22 TB of storage to the Homelab through NFS.
+
+The server currently uses three NFS exports:
+
+- `/export/permanent`
+- `/export/downloads`
+- `/export/temp`
+
+These are mounted on the Ubuntu server as:
+
+- `/mnt/permanent`
+- `/mnt/downloads`
+- `/mnt/temp`
+
+The separation between compute and storage allows the server to run the
+applications while the NAS provides the bulk storage required by the media
+library.
