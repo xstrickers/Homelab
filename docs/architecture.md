@@ -113,3 +113,93 @@ Caddy is deployed separately using its own Docker Compose project.
 
 This separation keeps the reverse proxy configuration independent from the
 media services.
+
+## Networking
+
+The Homelab uses several network layers to separate external access,
+container-to-container communication and VPN traffic.
+
+### Host Network
+
+The Ubuntu server runs Docker's default bridge interface:
+
+- Interface: `docker0`
+- Subnet: `172.17.0.0/16`
+- Gateway: `172.17.0.1`
+
+The Docker host is reachable from containers connected to this bridge
+through the gateway address.
+
+Caddy reaches Jellyfin and Seerr through ports published on the Docker host,
+using the Docker host gateway at `172.17.0.1`.
+
+For example:
+
+```text
+Caddy
+  │
+  ▼
+172.17.0.1:8096
+  │
+  ▼
+Docker port mapping
+  │
+  ▼
+Jellyfin
+```
+
+### Media Network
+
+The media stack uses a dedicated Docker bridge network:
+
+- Network: `docker_jelly_network`
+- Subnet: `172.18.0.0/16`
+- Gateway: `172.18.0.1`
+
+Services connected to this network can communicate using Docker's internal
+DNS and service names rather than relying on container IP addresses.
+
+For example:
+
+```text
+Sonarr → Radarr
+Sonarr → Prowlarr
+Seerr → Sonarr
+Seerr → Radarr
+```
+
+### Caddy Network
+
+Caddy runs as part of a separate Docker Compose project and therefore uses
+its own Docker network.
+
+Caddy does not directly join `docker_jelly_network`.
+
+Instead, it reaches Jellyfin and Seerr through ports published on the
+Ubuntu host:
+
+```text
+Caddy
+  │
+  ├── 172.17.0.1:8096 → Jellyfin
+  │
+  └── 172.17.0.1:5055 → Seerr
+```
+
+### VPN Network Path
+
+qBittorrent uses Gluetun's network namespace:
+
+```text
+qBittorrent
+     │
+     │ network_mode: service:gluetun
+     ▼
+  Gluetun
+     │
+     ▼
+    VPN
+     │
+     ▼
+  Internet
+```
