@@ -203,3 +203,50 @@ qBittorrent
      ▼
   Internet
 ```
+
+## Storage & NFS
+
+The NAS provides the bulk storage used by the media infrastructure.
+
+The Ubuntu server accesses the NAS through NFS mounts over the local network.
+
+The NAS exposes three separate NFS exports:
+
+- `/export/permanent` for permanent media storage
+- `/export/downloads` for downloaded content
+- `/export/temp` for temporary or rotating media storage
+
+These exports are mounted on the Ubuntu server as:
+
+- `/mnt/permanent`
+- `/mnt/downloads`
+- `/mnt/temp`
+
+The current mounts use NFS version 3 over TCP.
+
+The mounts are configured in `/etc/fstab` so they are restored automatically
+when the server starts.
+
+The NFS mounts use the `_netdev` option to indicate that the filesystems
+depend on network availability.
+
+The storage architecture is therefore:
+
+```text
+NAS
+  │
+  │ NFS
+  ▼
+Ubuntu Server
+  │
+  ├── /mnt/permanent
+  ├── /mnt/downloads
+  └── /mnt/temp
+  │
+  ▼
+Docker containers
+```
+
+The separation between permanent, downloaded and temporary data allows the
+media services to use different storage paths depending on the stage of the
+media lifecycle.
