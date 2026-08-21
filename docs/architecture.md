@@ -9,19 +9,11 @@ The infrastructure is built around:
 - A small Ubuntu Server used for compute and service orchestration
 - A NAS used for bulk media storage
 - Docker and Docker Compose for service deployment
-- A dedicated Docker network for the media stack
 - Caddy as a reverse proxy and HTTPS entry point
-- Gluetun to isolate qBittorrent traffic through a VPN
+- Gluetun to route qBittorrent traffic through a VPN
 - NFS to connect the server to the NAS
 - Intel hardware acceleration for Jellyfin transcoding
 
-The infrastructure is composed of two main Docker Compose stacks:
-
-1. The media stack, containing Jellyfin, Seerr, Sonarr, Radarr,
-   Prowlarr, qBittorrent and Gluetun.
-2. The Caddy stack, containing the reverse proxy and its custom
-   DuckDNS-enabled Caddy build.
-   
 ## Hardware & Infrastructure
 
 ### Server
@@ -46,207 +38,106 @@ network.
 
 It provides approximately 22 TB of storage to the Homelab through NFS.
 
-The server currently uses three NFS exports:
+The NAS provides three main storage areas:
 
-- `/export/permanent`
-- `/export/downloads`
-- `/export/temp`
-
-These are mounted on the Ubuntu server as:
-
-- `/mnt/permanent`
-- `/mnt/downloads`
-- `/mnt/temp`
+- Permanent media storage
+- Download storage
+- Temporary or rotating media storage
 
 The separation between compute and storage allows the server to run the
 applications while the NAS provides the bulk storage required by the media
 library.
 
-## Docker
+## Docker Infrastructure
 
-Docker is used to deploy and isolate the services running on the server.
+The Homelab uses two separate Docker Compose projects.
 
-The media services are managed through Docker Compose and share a dedicated
-bridge network named `docker_jelly_network`.
+### Media Stack
 
-The current Docker network uses the following configuration:
-
-- Network: `docker_jelly_network`
-- Driver: `bridge`
-- Subnet: `172.18.0.0/16`
-- Gateway: `172.18.0.1`
-
-The following services are connected to this network:
+The main media stack contains:
 
 - Jellyfin
 - Seerr
 - Sonarr
 - Radarr
 - Prowlarr
-- Gluetun
-
-qBittorrent uses a different networking configuration. It shares Gluetun's
-network namespace through Docker's `network_mode: service:gluetun` mechanism.
-
-This ensures that qBittorrent uses the same network path as Gluetun and can
-therefore operate through the VPN tunnel.
-
-### Docker Compose Stacks
-
-The infrastructure is split into two Docker Compose projects.
-
-#### Media stack
-
-The main Compose project contains:
-
-- Gluetun
 - qBittorrent
-- Sonarr
-- Radarr
-- Prowlarr
-- Jellyfin
-- Seerr
+- Gluetun
 
-#### Caddy stack
+These services handle media management, downloading and streaming.
+
+### Caddy Stack
 
 Caddy is deployed separately using its own Docker Compose project.
 
-This separation keeps the reverse proxy configuration independent from the
-media services.
+It acts as the reverse proxy and HTTPS entry point for externally accessible
+services.
 
-## Networking
+Keeping Caddy in a separate stack makes the reverse proxy independent from
+the media services.
 
-The Homelab uses several network layers to separate external access,
-container-to-container communication and VPN traffic.
+## Network Architecture
 
-### Host Network
+The infrastructure uses separate network layers for container
+communication, external access and VPN traffic.
 
-The Ubuntu server runs Docker's default bridge interface:
+The media services communicate through a dedicated Docker network.
 
-- Interface: `docker0`
-- Subnet: `172.17.0.0/16`
-- Gateway: `172.17.0.1`
+Caddy runs independently and reaches the required services through ports
+published on the Ubuntu host.
 
-The Docker host is reachable from containers connected to this bridge
-through the gateway address.
+qBittorrent shares Gluetun's network namespace so that its network traffic
+is routed through the VPN.
 
-Caddy reaches Jellyfin and Seerr through ports published on the Docker host,
-using the Docker host gateway at `172.17.0.1`.
+A detailed description of the Docker networks, ports and traffic flows is
+available in [Networking](networking.md).
 
-For example:
+## Storage Architecture
 
-```text
-Caddy
-  │
-  ▼
-172.17.0.1:8096
-  │
-  ▼
-Docker port mapping
-  │
-  ▼
-Jellyfin
-```
+The Ubuntu server accesses the NAS through NFS.
 
-### Media Network
+The NAS provides separate storage areas for permanent media, downloads and
+temporary data.
 
-The media stack uses a dedicated Docker bridge network:
+These storage areas are mounted on the Ubuntu server and then exposed to
+the relevant Docker containers.
 
-- Network: `docker_jelly_network`
-- Subnet: `172.18.0.0/16`
-- Gateway: `172.18.0.1`
+A detailed description of the NAS, NFS configuration and storage paths is
+available in [Storage](storage.md).
 
-Services connected to this network can communicate using Docker's internal
-DNS and service names rather than relying on container IP addresses.
+## Infrastructure Overview
 
-For example:
+The overall architecture can be summarized as:
 
 ```text
-Sonarr → Radarr
-Sonarr → Prowlarr
-Seerr → Sonarr
-Seerr → Radarr
+                         Internet
+                            │
+                            ▼
+                          Caddy
+                            │
+                    ┌───────┴───────┐
+                    ▼               ▼
+                 Jellyfin         Seerr
+                    │
+                    │
+              Docker Media Stack
+                    │
+        ┌───────────┼───────────┐
+        ▼           ▼           ▼
+     Sonarr       Radarr     Prowlarr
+        │
+        ▼
+    qBittorrent
+        │
+        ▼
+     Gluetun
+        │
+        ▼
+       VPN
+
+        Ubuntu Server
+             │
+             │ NFS
+             ▼
+            NAS
 ```
-
-### Caddy Network
-
-Caddy runs as part of a separate Docker Compose project and therefore uses
-its own Docker network.
-
-Caddy does not directly join `docker_jelly_network`.
-
-Instead, it reaches Jellyfin and Seerr through ports published on the
-Ubuntu host:
-
-```text
-Caddy
-  │
-  ├── 172.17.0.1:8096 → Jellyfin
-  │
-  └── 172.17.0.1:5055 → Seerr
-```
-
-### VPN Network Path
-
-qBittorrent uses Gluetun's network namespace:
-
-```text
-qBittorrent
-     │
-     │ network_mode: service:gluetun
-     ▼
-  Gluetun
-     │
-     ▼
-    VPN
-     │
-     ▼
-  Internet
-```
-
-## Storage & NFS
-
-The NAS provides the bulk storage used by the media infrastructure.
-
-The Ubuntu server accesses the NAS through NFS mounts over the local network.
-
-The NAS exposes three separate NFS exports:
-
-- `/export/permanent` for permanent media storage
-- `/export/downloads` for downloaded content
-- `/export/temp` for temporary or rotating media storage
-
-These exports are mounted on the Ubuntu server as:
-
-- `/mnt/permanent`
-- `/mnt/downloads`
-- `/mnt/temp`
-
-The current mounts use NFS version 3 over TCP.
-
-The mounts are configured in `/etc/fstab` so they are restored automatically
-when the server starts.
-
-The NFS mounts use the `_netdev` option to indicate that the filesystems
-depend on network availability.
-
-The storage architecture is therefore:
-
-```text
-NAS
-  │
-  │ NFS
-  ▼
-Ubuntu Server
-  │
-  ├── /mnt/permanent
-  ├── /mnt/downloads
-  └── /mnt/temp
-  │
-  ▼
-Docker containers
-```
-
-The separation between permanent, downloaded and temporary data allows the
-media services to use different storage paths depending on the stage of the
-media lifecycle.
